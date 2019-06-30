@@ -10,47 +10,45 @@ namespace App\Services\Gateway;
 
 use App\Services\Auth;
 use App\Services\Config;
+use App\Models\Code;
 use App\Models\Paylist;
 use App\Services\View;
-use Exception;
 use Omnipay\Omnipay;
 
 class AopF2F extends AbstractPayment
 {
-    private function createGateway()
-    {
+    private function createGateway(){
         $gateway = Omnipay::create('Alipay_AopF2F');
         $gateway->setSignType('RSA2'); //RSA/RSA2
-        $gateway->setAppId(Config::get('f2fpay_app_id'));
-        $gateway->setPrivateKey(Config::get('merchant_private_key')); // 可以是路径，也可以是密钥内容
-        $gateway->setAlipayPublicKey(Config::get('alipay_public_key')); // 可以是路径，也可以是密钥内容
-        $notifyUrl = Config::get('f2fNotifyUrl') ?? (Config::get('baseUrl') . '/payment/notify');
-        $gateway->setNotifyUrl($notifyUrl);
+        $gateway->setAppId(Config::get("f2fpay_app_id"));
+        $gateway->setPrivateKey(Config::get("merchant_private_key")); // 可以是路径，也可以是密钥内容
+        $gateway->setAlipayPublicKey(Config::get("alipay_public_key")); // 可以是路径，也可以是密钥内容
+        $gateway->setNotifyUrl(Config::get("baseUrl")."/payment/notify");
+
         return $gateway;
     }
 
 
-    public function purchase($request, $response, $args)
+    function purchase($user, $shop, $type, $amount)
     {
-        $amount = $request->getParam('amount');
-        $user = Auth::getUser();
-        if ($amount == '') {
+        if ($amount == "") {
             $res['ret'] = 0;
-            $res['msg'] = '订单金额错误：' . $amount;
-            return $response->getBody()->write(json_encode($res));
+            $res['msg'] = "订单金额错误：" . $amount;
+            return $res;
         }
 
         $pl = new Paylist();
         $pl->userid = $user->id;
         $pl->tradeno = self::generateGuid();
         $pl->total = $amount;
+        $pl->shopid = $shop->id;
         $pl->save();
 
-        $gateway = $this->createGateway();
+        $gateway = self::createGateway();
 
         $request = $gateway->purchase();
         $request->setBizContent([
-            'subject' => $pl->tradeno,
+            'subject'      => "￥".$pl->total." - {$user->user_name}({$user->email})",
             'out_trade_no' => $pl->tradeno,
             'total_amount' => $pl->total
         ]);
@@ -62,16 +60,16 @@ class AopF2F extends AbstractPayment
         $qrCodeContent = $aliResponse->getQrCode();
 
         $return['ret'] = 1;
-        $return['qrcode'] = $qrCodeContent;
-        $return['amount'] = $pl->total;
+        $return['url'] = $qrCodeContent;
         $return['pid'] = $pl->tradeno;
+        $return['price'] = $pl->total;
 
-        return json_encode($return);
+        return $return;
     }
 
-    public function notify($request, $response, $args)
+    function notify($request, $response, $args)
     {
-        $gateway = $this->createGateway();
+        $gateway = self::createGateway();
         $aliRequest = $gateway->completePurchase();
         $aliRequest->setParams($_POST);
 
@@ -79,29 +77,29 @@ class AopF2F extends AbstractPayment
             /** @var \Omnipay\Alipay\Responses\AopCompletePurchaseResponse $response */
             $aliResponse = $aliRequest->send();
             $pid = $aliResponse->data('out_trade_no');
-            if ($aliResponse->isPaid()) {
-                $this->postPayment($pid, '支付宝当面付 ' . $pid);
+            if($aliResponse->isPaid()){
+                self::postPayment($pid);
                 die('success'); //The response should be 'success' only
             }
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             die('fail');
         }
     }
 
 
-    public function getPurchaseHTML()
+    function getPurchaseHTML()
     {
-        return View::getSmarty()->fetch('user/aopf2f.tpl');
+        return View::getSmarty()->fetch("user/aoppage.tpl");
     }
 
-    public function getReturnHTML($request, $response, $args)
+    function getReturnHTML($request, $response, $args)
     {
         return 0;
     }
 
-    public function getStatus($request, $response, $args)
+    function getStatus($request, $response, $args)
     {
-        $p = Paylist::where('tradeno', $_POST['pid'])->first();
+        $p = Paylist::where("tradeno", $_POST['pid'])->first();
         $return['ret'] = 1;
         $return['result'] = $p->status;
         return json_encode($return);

@@ -7,71 +7,69 @@
  */
 
 namespace App\Services\Gateway;
-
 use App\Services\View;
 use App\Services\Auth;
 use App\Services\Config;
 use App\Models\Paylist;
+use App\Models\Bought;
+use App\Models\Shop;
+use App\Models\User;
+use App\Utils\Telegram;
 
 class TrimePay extends AbstractPayment
 {
 
     private $appSecret;
     private $gatewayUri;
-
     /**
      * 签名初始化
-     * @param merKey    签名密钥
+     * @param merKey	签名密钥
      */
 
-    public function __construct($appSecret)
-    {
+    public function __construct($appSecret) {
         $this->appSecret = $appSecret;
-        $this->gatewayUri = 'https://api.Trimepay.com/gateway/';
+        $this->gatewayUri = 'https://api.trimepay.com/gateway/';
     }
 
 
     /**
-     * @name    准备签名/验签字符串
+     * @name	准备签名/验签字符串
      */
-    public function prepareSign($data)
-    {
+    public function prepareSign($data) {
         ksort($data);
         return http_build_query($data);
     }
 
     /**
-     * @name    生成签名
-     * @param sourceData
-     * @return    签名数据
+     * @name	生成签名
+     * @param	sourceData
+     * @return	签名数据
      */
-    public function sign($data)
-    {
-        return strtolower(md5(md5($data) . $this->appSecret));
+    public function sign($data) {
+        $signature = strtolower(md5(md5($data).$this->appSecret));
+        return $signature;
     }
 
     /*
-     * @name    验证签名
-     * @param   signData 签名数据
-     * @param   sourceData 原数据
+     * @name	验证签名
+     * @param	signData 签名数据
+     * @param	sourceData 原数据
      * @return
      */
-    public function verify($data, $signature)
-    {
+    public function verify($data, $signature) {
         $mySign = $this->sign($data);
-        return $mySign === $signature;
+        if ($mySign === $signature) {
+            return true;
+        } else {
+            return false;
+        }
     }
 
-    public function post($data, $type = 'pay')
-    {
-        if ($type == 'pay') {
-            $this->gatewayUri .= 'pay/go';
-        } elseif ($type == 'refund') {
-            $this->gatewayUri .= 'refund/go';
-        } elseif ($type == 'pre') {
-            $this->gatewayUri .= 'pay/pre';
+    public function post($data, $type = "pay"){
+        if ($type == "pay"){
+            $this->gatewayUri .= "pay/go";
         } else {
-            $this->gatewayUri .= 'query/go';
+            $this->gatewayUri .= "refund/go";
         }
 
         $curl = curl_init();
@@ -88,122 +86,98 @@ class TrimePay extends AbstractPayment
     }
 
 
-    public function purchase($request, $response, $args)
+    public function purchase($user, $shop, $type, $price)
     {
-        $price = $request->getParam('price');
-        $type = $request->getParam('type');
-
-
-        if ($price <= 0) {
-            return json_encode(['code' => -1, 'errmsg' => '非法的金额.']);
+        $price = round($price, 2);
+        if($price <= 0){
+            return ['code'=>-1,'errmsg'=>"非法的金额."];
         }
-        $user = Auth::getUser();
+
         $pl = new Paylist();
         $pl->userid = $user->id;
         $pl->total = $price;
         $pl->tradeno = self::generateGuid();
+        $pl->shopid = $shop->id;
         $pl->save();
-
 
         $data['appId'] = Config::get('trimepay_appid');
         $data['payType'] = $type;
         $data['merchantTradeNo'] = $pl->tradeno;
         $data['totalFee'] = (float)$price * 100;
-        $data['notifyUrl'] = Config::get('baseUrl') . '/payment/notify';
-        $data['returnUrl'] = Config::get('baseUrl') . '/user/payment/return';
-        $params = $this->prepareSign($data);
-        $data['sign'] = $this->sign($params);
+        $data['notifyUrl'] = Config::get("baseUrl")."/payment/notify";
+        $data['returnUrl'] = Config::get("baseUrl")."/user/payment/return";
+        $params = self::prepareSign($data);
+        $data['sign'] = self::sign($params);
         switch ($type) {
-            case ('WEPAY_JSAPI'):
-                $result = json_decode($this->post($data, $type = 'pre'), true);
-                break;
+            case('WEPAY_JSAPI'):
+                $data = "http://cashier.hlxpay.com/#/wepay/jsapi?payData=".base64_encode(json_encode($data));
+                $result['url'] = $data;
+                $result['pid'] = $pl->tradeno;
+                $result['price'] = $price;
+                return $result;
             default:
-                $result = json_decode($this->post($data), true);
+                $ret = json_decode(self::post($data), TRUE);
+                $result['url'] = $ret['data'];
+                $result['pid'] = $pl->tradeno;
+                $result['price'] = $price;
+                return $result;
         }
-        $result['pid'] = $pl->tradeno;
-        return json_encode($result);
-    }
-
-    public function query($tradeNo)
-    {
-        $data['appId'] = Config::get('trimepay_appid');
-        $data['merchantTradeNo'] = $tradeNo;
-        $params = $this->prepareSign($data);
-        $data['sign'] = $this->sign($params);
-        return json_decode($this->post($data, $type = 'query'), true);
     }
 
     public function notify($request, $response, $args)
     {
         $data = array();
-        $data['payStatus'] = $request->getParam('payStatus');
-        $data['payFee'] = $request->getParam('payFee');
-        $data['callbackTradeNo'] = $request->getParam('callbackTradeNo');
-        $data['payType'] = $request->getParam('payType');
-        $data['merchantTradeNo'] = $request->getParam('merchantTradeNo');
+        $data['payStatus']=$request->getParam('payStatus');
+        $data['payFee']=$request->getParam('payFee');
+        $data['callbackTradeNo']=$request->getParam('callbackTradeNo');
+        $data['payType']=$request->getParam('payType');
+        $data['merchantTradeNo']=$request->getParam('merchantTradeNo');
 
         //file_put_contents(BASE_PATH.'/storage/trimepay_notify.log', json_encode($data)."\r\n", FILE_APPEND);
         // 准备待签名数据
-        $str_to_sign = $this->prepareSign($data);
+        $str_to_sign = self::prepareSign($data);
         // 验证签名
-        $resultVerify = $this->verify($str_to_sign, $request->getParam('sign'));
+        $resultVerify = self::verify($str_to_sign, $request->getParam('sign'));
         if ($resultVerify) {
             //file_put_contents('./trimepay_notify_success.log', json_encode($data)."\r\n", FILE_APPEND);
-            $this->postPayment($data['merchantTradeNo'], 'TrimePay');
+            self::postPayment($data['merchantTradeNo']);
             echo 'SUCCESS';
-        } else {
+        }else{
             echo 'FAIL';
         }
     }
 
-    public function refund($merchantTradeNo)
-    {
+    public function refund($merchantTradeNo){
         $data['appId'] = Config::get('trimepay_appid');
         $data['merchantTradeNo'] = $merchantTradeNo;
-        $params = $this->prepareSign($data);
-        $data['sign'] = $this->sign($params);
+        $params = self::prepareSign($data);
+        $data['sign'] = self::sign($params);
 
-        return $this->post($data, 'refund');
+        return self::post($data, "refund");
     }
 
 
     public function getPurchaseHTML()
     {
-        return View::getSmarty()->fetch('user/trimepay.tpl');
+        return View::getSmarty()->fetch("user/trimepay.tpl");
     }
 
     public function getReturnHTML($request, $response, $args)
     {
         $pid = $_GET['merchantTradeNo'];
-        $p = Paylist::where('tradeno', '=', $pid)->first();
+        $p = Paylist::where('tradeno','=',$pid)->first();
         $money = $p->total;
-        if ($p->status == 1) {
+        if ($p->status == 1){
             $success = 1;
         } else {
-            $data = array();
-            $data['payStatus'] = $request->getParam('payStatus');
-            $data['payFee'] = $request->getParam('payFee');
-            $data['callbackTradeNo'] = $request->getParam('callbackTradeNo');
-            $data['payType'] = $request->getParam('payType');
-            $data['merchantTradeNo'] = $request->getParam('merchantTradeNo');
-            // 准备待签名数据
-            $str_to_sign = $this->prepareSign($data);
-            // 验证签名
-            $resultVerify = $this->verify($str_to_sign, $request->getParam('sign'));
-            if ($resultVerify) {
-                $this->postPayment($data['merchantTradeNo'], 'TrimePay');
-                $success = 1;
-            } else {
-                $success = 0;
-            }
+            $success = 0;
         }
         return View::getSmarty()->assign('money', $money)->assign('success', $success)->fetch('user/pay_success.tpl');
     }
 
     public function getStatus($request, $response, $args)
     {
-        $return = [];
-        $p = Paylist::where('tradeno', $_POST['pid'])->first();
+        $p = Paylist::where("tradeno", $_POST['pid'])->first();
         $return['ret'] = 1;
         $return['result'] = $p->status;
         return json_encode($return);
