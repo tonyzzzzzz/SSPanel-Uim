@@ -25,12 +25,9 @@ use App\Utils\GA;
 class AuthController
 {
     public function login($request, $response){
-        $email = $request->getParam('email');
-        $email = trim($email);
-        $email = strtolower($email);
+        $email = strtolower(trim($request->getParam('email')));
         $passwd = $request->getParam('passwd');
         $rememberMe = $request->getParam('rememberMe');
-
         $user = User::where('email', '=', $email)->first();
 
         if ($user == null) {
@@ -42,21 +39,18 @@ class AuthController
         if (!Hash::checkPassword($user->pass, $passwd)) {
             $rs['code'] = -1;
             $rs['msg'] = "邮箱或者密码错误.";
-
-
             $loginip = new LoginIp();
             $loginip->ip = $_SERVER["REMOTE_ADDR"];
             $loginip->userid = $user->id;
             $loginip->datetime = time();
             $loginip->type = 1;
             $loginip->save();
-
             return $response->getBody()->write(json_encode($rs));
         }
 
-        $time = 3600 * 24;
+        $time = 86400;
         if ($rememberMe) {
-            $time = + 3600 * 24 * 7;
+            $time = 86400 * 7;
         }
 
         $token = Auth::login($user->id, $time);
@@ -65,30 +59,23 @@ class AuthController
             'token' => $token,
             'time' => $time,
         );
+
         return $response->getBody()->write(json_encode($res));
     }
 
     public function getVerificationCode($request, $response){
-        $email = $request->getParam('email');
-        $email = trim($email);
+        $email = trim($request->getParam('email'));
 
-        if ($email == "") {
+        if ($email == "" || !Check::isEmailLegal($email)) {
             $res['ret'] = -1;
-            $res['msg'] = "未填写邮箱";
-            return $response->getBody()->write(json_encode($res));
-        }
-
-        // check email format
-        if (!Check::isEmailLegal($email)) {
-            $res['ret'] = -1;
-            $res['msg'] = "邮箱无效";
+            $res['msg'] = "无效邮箱";
             return $response->getBody()->write(json_encode($res));
         }
 
         $user = User::where('email', '=', $email)->first();
         if ($user != null) {
             $res['ret'] = -1;
-            $res['msg'] = "此邮箱已经注册";
+            $res['msg'] = "此邮箱已注册";
             return $response->getBody()->write(json_encode($res));
         }
 
@@ -99,7 +86,6 @@ class AuthController
             return $response->getBody()->write(json_encode($res));
         }
 
-
         $mailcount = EmailVerify::where('email', '=', $email)->where('expire_in', '>', time())->count();
         if ($mailcount >= 3) {
             $res['ret'] = -1;
@@ -107,20 +93,16 @@ class AuthController
             return $response->getBody()->write(json_encode($res));
         }
 
-        $code = Tools::genRandomNum(6);
-
         $ev = new EmailVerify();
         $ev->expire_in = time() + Config::get('email_verify_ttl');
         $ev->ip = $_SERVER["REMOTE_ADDR"];
         $ev->email = $email;
-        $ev->code = $code;
+        $ev->code = Tools::genRandomNum(6);
         $ev->save();
-
         $subject = Config::get('appName') . "- 验证邮件";
-
         try {
             Mail::send($email, $subject, 'auth/verify.tpl', [
-                "code" => $code, "expire" => date("Y-m-d H:i:s", time() + Config::get('email_verify_ttl'))
+                "code" => $ev->code, "expire" => date("Y-m-d H:i:s", time() + Config::get('email_verify_ttl'))
             ], [
                 //BASE_PATH.'/public/assets/email/styles.css'
             ]);
@@ -136,16 +118,11 @@ class AuthController
     }
 
     public function register($request, $response){
-        $email = $request->getParam('email');
-        $email = trim($email);
-        $email = strtolower($email);
+        $email = strtolower(trim($request->getParam('email')));
         $passwd = $request->getParam('passwd');
         $repasswd = $request->getParam('rpasswd');
-        $code = $request->getParam('invitee_code');
-        $code = trim($code);
-        $emailcode = $request->getParam('emailcode');
-        $emailcode = trim($emailcode);
-
+        $code = trim($request->getParam('invitee_code'));
+        $emailcode = trim($request->getParam('emailcode'));
         $c = InviteCode::where('code', $code)->first();
         if ($c == null) {
             if (Config::get('register_mode') == 'invite') {
@@ -182,7 +159,6 @@ class AuthController
             $res['msg'] = "邮箱已经被注册了";
             return $response->getBody()->write(json_encode($res));
         }
-
         if (Config::get('enable_email_verify') == 'true') {
             $mailcount = EmailVerify::where('email', '=', $email)->where('code', '=', $emailcode)->where('expire_in', '>', time())->first();
             if ($mailcount == null) {
@@ -191,14 +167,12 @@ class AuthController
                 return $response->getBody()->write(json_encode($res));
             }
         }
-
         // check pwd length
         if (strlen($passwd) < 8) {
             $res['ret'] = -1;
-            $res['msg'] = "密码请大于8位";
+            $res['msg'] = "密码长度至少8位";
             return $response->getBody()->write(json_encode($res));
         }
-
         // check pwd re
         if ($passwd != $repasswd) {
             $res['ret'] = -1;
@@ -209,9 +183,7 @@ class AuthController
         EmailVerify::where('email', '=', $email)->delete();
 
         $user = new User();
-
         $antiXss = new AntiXSS();
-
         $user->user_name = $antiXss->xss_clean($email);
         $user->email = $email;
         $user->pass = Hash::passwordHash($passwd);
@@ -232,7 +204,6 @@ class AuthController
         $user->auto_reset_day = Config::get('reg_auto_reset_day');
         $user->auto_reset_bandwidth = Config::get('reg_auto_reset_bandwidth');
         $user->money = 0;
-
         //dumplin：填写邀请人，写入邀请奖励
         $user->ref_by = 0;
         if ($c != null) {
@@ -245,7 +216,6 @@ class AuthController
                 $gift_user->save();
             }
         }
-
         $user->class_expire = date("Y-m-d H:i:s", time() + Config::get('user_class_expire_default') * 3600);
         $user->class = Config::get('user_class_default');
         $user->node_connector = Config::get('user_conn');
@@ -255,17 +225,13 @@ class AuthController
         $user->reg_ip = $_SERVER["REMOTE_ADDR"];
         $user->plan = 'A';
         $user->theme = Config::get('theme');
-
         $groups=explode(",", Config::get('ramdom_group'));
-
         $user->node_group=$groups[array_rand($groups)];
-
         $ga = new GA();
         $secret = $ga->createSecret();
-
         $user->ga_token = $secret;
         $user->ga_enable = 0;
-
+        
         if ($user->save()) {
             $res['ret'] = 0;
             $res['msg'] = "注册成功！请您登录";
@@ -276,4 +242,4 @@ class AuthController
         $res['msg'] = "未知错误";
         return $response->getBody()->write(json_encode($res));
     }
-}
+} 

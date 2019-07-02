@@ -54,9 +54,11 @@ class NodeController
 
             array_push($ret['data'], array(
                 'id' => $node->id,
-                'load' => $nodeLoad,
-                'name' => $node->name,
                 'link' => $node->server,
+                'name' => $node->name,
+                'load' => $nodeLoad,
+                'mu_only' => $node->mu_only,
+                'sort' => $node->sort,
                 'online' => $node->isNodeOnline() ? $node->getOnlineUserCount() : -1,
                 'level' => $node->node_class,
                 'subscribelink' => $url,
