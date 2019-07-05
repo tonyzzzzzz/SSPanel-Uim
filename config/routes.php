@@ -321,7 +321,7 @@ $app->group('/api', function () {
             $this->post('/shop/buy', App\Controllers\API\v1\ShopController::class . ':buy');
             $this->get('/shop/checkstatus', App\Controllers\API\v1\ShopController::class . ':checkStatus');
             $this->get('/node/info', App\Controllers\API\v1\NodeController::class . ':info');
-         })->add(new API_Auth());;
+         })->add(new API_Auth());
     });
 });
 
