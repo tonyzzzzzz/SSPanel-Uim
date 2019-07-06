@@ -19,7 +19,7 @@ class API_Auth
 
         if (!$user->isLogin || $user->enable == 0) {
             $res['code'] = 403;
-            $res['msg'] = 'Token 过期';
+            $res['msg'] = '登录令牌已过期';
             $response->getBody()->write(json_encode($res));
             return $response;
         }

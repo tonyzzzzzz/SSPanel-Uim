@@ -67,33 +67,6 @@ $app->get('/tos', App\Controllers\HomeController::class . ':tos');
 $app->get('/staff', App\Controllers\HomeController::class . ':staff');
 $app->post('/telegram_callback', App\Controllers\HomeController::class . ':telegram');
 
-
-// New API
-$app->group('/api', function(){
-    $this->group('/v1', function(){
-        $this->group('/auth', function(){
-            $this->post('/login', 'App\Controllers\API\v1\AuthController:login');
-            $this->post('/register', 'App\Controllers\API\v1\AuthController:register');
-            $this->get('/get_code', 'App\Controllers\API\v1\AuthController:getVerificationCode');
-        })->add(new API_Guest());
-
-        $this->group('/link', function(){
-            $this->get('/get_pac', 'App\Controllers\API\v1\UserController:getPac');
-        });
-
-        $this->group('/user', function(){
-            $this->get('/info', 'App\Controllers\API\v1\UserController:info');
-            $this->get('/shop/info', 'App\Controllers\API\v1\ShopController:index');
-            $this->get('/get_pac', 'App\Controllers\API\v1\UserController:getPac');
-            $this->get('/get_node_config', 'App\Controllers\API\v1\UserController:getNodeConfig');
-            $this->post('/shop/buy', 'App\Controllers\API\v1\ShopController:buy');
-            $this->get('/shop/checkstatus', 'App\Controllers\API\v1\ShopController:checkStatus');
-            $this->get('/node/info', 'App\Controllers\API\v1\NodeController:info');
-        })->add(new API_Auth());;
-
-    });
-});
-
 // User Center
 $app->group('/user', function () {
     $this->get('', App\Controllers\UserController::class . ':index');
@@ -333,6 +306,23 @@ $app->group('/api', function () {
     $this->get('/node', App\Controllers\ApiController::class . ':node')->add(new Api());
     $this->get('/user/{id}', App\Controllers\ApiController::class . ':userInfo')->add(new Api());
     $this->get('/sublink', App\Controllers\Client\ClientApiController::class . ':GetSubLink');
+
+    // New Client API
+    $this->group('/v1', function(){
+        $this->group('/auth', function(){
+            $this->post('/login', App\Controllers\API\v1\AuthController::class . ':login');
+            $this->post('/register', App\Controllers\API\v1\AuthController::class . ':register');
+            $this->get('/get_code', App\Controllers\API\v1\AuthController::class . ':getVerificationCode');
+        })->add(new API_Guest());
+        $this->group('/user', function(){
+            $this->get('/info', App\Controllers\API\v1\UserController::class . ':info');
+            $this->get('/get_node_config', App\Controllers\API\v1\UserController::class . ':getNodeConfig');
+            $this->get('/shop/info', App\Controllers\API\v1\ShopController::class . ':index');
+            $this->post('/shop/buy', App\Controllers\API\v1\ShopController::class . ':buy');
+            $this->get('/shop/checkstatus', App\Controllers\API\v1\ShopController::class . ':checkStatus');
+            $this->get('/node/info', App\Controllers\API\v1\NodeController::class . ':info');
+         })->add(new API_Auth());
+    });
 });
 
 // mu

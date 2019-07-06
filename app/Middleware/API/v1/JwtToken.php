@@ -22,26 +22,18 @@ class JwtToken
     public function logout()
     {
         Utils\Cookie::set([
-            //"uid" => $uid,
             "token" => ""
         ], time()-3600);
     }
 
     static public function getUser($token)
     {
-        if($token){
+        if ($token) {
             $tokenInfo = Jwt::decodeArray($token);
-            $uid = $tokenInfo->uid;
+            $user = User::find($tokenInfo->uid);
             $expire_time = $tokenInfo->expire_time;
 
-            if ($expire_time<time()) {
-                $user = new User();
-                $user->isLogin = false;
-                return $user;
-            }
-
-            $user = User::find($uid);
-            if ($user == null) {
+            if ($expire_time < time() || $user == Null) {
                 $user = new User();
                 $user->isLogin = false;
                 return $user;
